@@ -27,6 +27,7 @@ add_subdirectory(fs)
 add_subdirectory(common)
 add_subdirectory(cache)
 add_subdirectory(storage)
+add_subdirectory(journal)
 add_subdirectory(test)
 add_subdirectory(cli)
 

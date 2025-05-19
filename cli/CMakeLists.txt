@@ -9,6 +9,11 @@ target_include_directories(mtfs_cli
     PRIVATE
         ${CMAKE_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR}/include
+        ${CMAKE_SOURCE_DIR}/fs/include
+        ${CMAKE_SOURCE_DIR}/common/include
+        ${CMAKE_SOURCE_DIR}/cache/include
+        ${CMAKE_SOURCE_DIR}/storage/include
+        ${CMAKE_SOURCE_DIR}/journal/include
 )
 
 target_link_libraries(mtfs_cli
@@ -17,4 +22,5 @@ target_link_libraries(mtfs_cli
         cache
         storage
         common
+        journal
 ) 

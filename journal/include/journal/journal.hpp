@@ -6,6 +6,7 @@
 #include <chrono>
 #include "common/error.hpp"
 #include "storage/block_manager.hpp"
+#include <string>
 
 namespace mtfs::journal {
 
@@ -50,11 +51,15 @@ public:
     virtual size_t size() const = 0;
     virtual uint64_t getLastSequenceNumber() const = 0;
 
-    Journal();
-    ~Journal();
+    Journal() = default;
+    ~Journal() = default;
+
+    // Core journal operations
+    void initialize();
+    void logOperation(const std::string& operation);
 
 protected:
-    Journal() = default;
+    // Private members can be added later
 };
 
 } // namespace mtfs::journal 

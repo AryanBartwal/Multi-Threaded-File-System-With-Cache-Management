@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>
+      Multi-Threaded File System With Cache Management - Documentation
+    </title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        max-width: 1000px;
+        margin: 0 auto;
+        padding: 20px;
+        color: #333;
+      }
+      h1 {
+        color: #2c3e50;
+        border-bottom: 2px solid #3498db;
+        padding-bottom: 10px;
+      }
+      h2 {
+        color: #34495e;
+        margin-top: 30px;
+        border-bottom: 1px solid #bdc3c7;
+        padding-bottom: 5px;
+      }
+      h3 {
+        color: #7f8c8d;
+      }
+      code {
+        background-color: #f7f9fa;
+        padding: 2px 5px;
+        border-radius: 3px;
+        font-family: "Courier New", Courier, monospace;
+      }
+      pre {
+        background-color: #f7f9fa;
+        padding: 15px;
+        border-radius: 5px;
+        overflow-x: auto;
+        border: 1px solid #ddd;
+      }
+      .cpp-code {
+        background-color: #282c34;
+        color: #abb2bf;
+        padding: 15px;
+        border-radius: 5px;
+      }
+      ul {
+        padding-left: 20px;
+      }
+      li {
+        margin: 5px 0;
+      }
+      .note {
+        background-color: #fff3cd;
+        border-left: 4px solid #ffc107;
+        padding: 15px;
+        margin: 15px 0;
+      }
+      .command {
+        background-color: #282c34;
+        color: #abb2bf;
+        padding: 10px;
+        border-radius: 5px;
+        margin: 10px 0;
+      }
+      .output {
+        background-color: #f8f9fa;
+        border-left: 4px solid #28a745;
+        padding: 10px;
+        margin: 10px 0;
+      }
+      .comparison-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0;
+        background-color: #fff;
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+      }
+      .comparison-table th {
+        background-color: #2c3e50;
+        color: white;
+        padding: 12px;
+        text-align: left;
+      }
+      .comparison-table td {
+        padding: 12px;
+        border: 1px solid #ddd;
+      }
+      .comparison-table tr:nth-child(even) {
+        background-color: #f8f9fa;
+      }
+      .comparison-table tr:hover {
+        background-color: #f5f5f5;
+      }
+      .feature-name {
+        font-weight: bold;
+        color: #2c3e50;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>
+      Multi-Threaded File System With Cache Management - Technical Documentation
+    </h1>
+
+    <h2>Overview</h2>
+    <p>
+      This document provides a detailed technical explanation of each module in
+      the Multi-Threaded File System with Cache Management project.
+    </p>
+
+    <h2>Feature Comparison</h2>
+    <p>
+      Below is a detailed comparison between traditional file systems and our
+      custom implementation:
+    </p>
+
+    <table class="comparison-table">
+      <thead>
+        <tr>
+          <th>Feature/Capability</th>
+          <th>Normal File System (e.g., ext4, NTFS)</th>
+          <th>Our Project (Custom Multithreaded + LRU Cache)</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="feature-name">Multithreading support</td>
+          <td>Built-in at OS/kernel level, complex and opaque</td>
+          <td>You design & control thread-safe file access at user-level</td>
+        </tr>
+        <tr>
+          <td class="feature-name">Custom caching system</td>
+          <td>Uses hardware and kernel caching, not exposed directly</td>
+          <td>
+            You implement your own <strong>LRU cache</strong>, tuning eviction,
+            size, and behavior yourself
+          </td>
+        </tr>
+        <tr>
+          <td class="feature-name">Learning transparency</td>
+          <td>Black-box; complex and hard to understand fully</td>
+          <td>
+            Full code & design control to deeply understand file system
+            internals
+          </td>
+        </tr>
+        <tr>
+          <td class="feature-name">Benchmarking and instrumentation</td>
+          <td>Limited direct insight without special tools</td>
+          <td>
+            Built-in benchmarking scripts to measure performance (cache hits,
+            concurrency, speed)
+          </td>
+        </tr>
+        <tr>
+          <td class="feature-name">Modularity and experimentation</td>
+          <td>Difficult to modify core behavior</td>
+          <td>
+            You can swap cache policies, add journaling, or new features easily
+          </td>
+        </tr>
+        <tr>
+          <td class="feature-name">Crash recovery (optional journaling)</td>
+          <td>Complex, built-in recovery</td>
+          <td>
+            You can implement simple journaling to learn data consistency
+            principles
+          </td>
+        </tr>
+        <tr>
+          <td class="feature-name">Customizability</td>
+          <td>Fixed behavior defined by OS</td>
+          <td>
+            You control block size, cache size, and can extend to distributed or
+            networked FS
+          </td>
+        </tr>
+        <tr>
+          <td class="feature-name">Education & Innovation</td>
+          <td>Mature but a black box</td>
+          <td>
+            Your project is a playground for learning and innovating in systems
+            programming
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h2>Table of Contents</h2>
+    <ul>
+      <li><a href="#file-system-module">File System Module</a></li>
+      <li><a href="#cache-module">Cache Module</a></li>
+      <li><a href="#storage-module">Storage Module</a></li>
+      <li><a href="#threading-module">Threading Module</a></li>
+      <li><a href="#journal-module">Journal Module</a></li>
+      <li><a href="#test-module">Test Module</a></li>
+      <li><a href="#integration-points">Integration Points</a></li>
+      <li><a href="#performance-features">Performance Features</a></li>
+      <li><a href="#test-commands">Test Commands and Usage Guide</a></li>
+    </ul>
+
+    <h2 id="file-system-module">File System Module</h2>
+    <h3>Core Purpose</h3>
+    <p>Provides the main interface for file operations</p>
+
+    <h3>Key Components</h3>
+    <ul>
+      <li>
+        <code>FileSystem</code> class with operations like create, read, write,
+        delete
+      </li>
+      <li><code>FileMetadata</code> struct for storing file information</li>
+      <li>Integration with cache system</li>
+    </ul>
+
+    <h3>Key Features</h3>
+    <ul>
+      <li>Basic file operations (create, read, write, delete)</li>
+      <li>Directory operations (create, list)</li>
+      <li>Advanced operations (partial read/write, permissions)</li>
+      <li>Cache integration for performance</li>
+      <li>Thread-safe operations</li>
+    </ul>
+
+    <h3>Implementation Details</h3>
+    <pre class="cpp-code">
+struct FileMetadata {
+    std::string name;
+    std::size_t size{0};
+    bool isDirectory{false};
+    std::chrono::system_clock::time_point createdAt;
+    std::chrono::system_clock::time_point modifiedAt;
+    uint32_t permissions{0644};  // Default Unix-style permissions
+};</pre
+    >
+
+    <h2 id="cache-module">Cache Module</h2>
+    <h3>Core Purpose</h3>
+    <p>Implements LRU (Least Recently Used) caching for file contents</p>
+
+    <h3>Key Components</h3>
+    <ul>
+      <li>Template-based <code>LRUCache</code> class</li>
+      <li>Thread-safe implementation using Windows Critical Sections</li>
+    </ul>
+
+    <h3>Key Features</h3>
+    <ul>
+      <li>O(1) lookup time using hash map</li>
+      <li>LRU eviction policy</li>
+      <li>Thread-safe operations</li>
+      <li>Configurable cache capacity</li>
+      <li>Logging for cache operations</li>
+      <li>Memory-efficient storage</li>
+    </ul>
+
+    <h3>Implementation Details</h3>
+    <p>The cache uses a combination of:</p>
+    <ul>
+      <li>Hash map for fast lookups</li>
+      <li>Doubly linked list for LRU tracking</li>
+      <li>Critical sections for thread safety</li>
+    </ul>
+
+    <h2 id="storage-module">Storage Module</h2>
+    <h3>Core Purpose</h3>
+    <p>Manages low-level block storage operations</p>
+
+    <h3>Key Components</h3>
+    <ul>
+      <li><code>BlockManager</code> class for block-level operations</li>
+      <li>Bitmap-based block allocation</li>
+    </ul>
+
+    <h3>Key Features</h3>
+    <ul>
+      <li>4KB block size</li>
+      <li>Thread-safe block operations</li>
+      <li>Bitmap-based free space management</li>
+      <li>Direct disk I/O</li>
+      <li>Future support for compression and encryption</li>
+      <li>Block allocation and deallocation</li>
+    </ul>
+
+    <h3>Implementation Details</h3>
+    <pre class="cpp-code">
+static constexpr size_t BLOCK_SIZE = 4096;  // 4KB blocks
+static constexpr size_t MAX_BLOCKS = 1024;  // Initial maximum blocks
+static constexpr size_t BITMAP_BYTES = (MAX_BLOCKS + 7) / 8;  // Size of bitmap in bytes</pre
+    >
+
+    <h2 id="threading-module">Threading Module</h2>
+    <h3>Core Purpose</h3>
+    <p>Manages concurrent operations through a thread pool</p>
+
+    <h3>Key Components</h3>
+    <ul>
+      <li><code>ThreadPool</code> class for task management</li>
+      <li>Task queue and worker threads</li>
+    </ul>
+
+    <h3>Key Features</h3>
+    <ul>
+      <li>Dynamic task submission</li>
+      <li>Thread pool management</li>
+      <li>Task queuing</li>
+      <li>Pause/resume capability</li>
+      <li>Status monitoring</li>
+      <li>Future-based task results</li>
+    </ul>
+
+    <h3>Implementation Details</h3>
+    <p>The thread pool provides:</p>
+    <ul>
+      <li>Task submission with future results</li>
+      <li>Worker thread management</li>
+      <li>Thread-safe task queue</li>
+      <li>Pause/resume functionality</li>
+    </ul>
+
+    <h2 id="journal-module">Journal Module</h2>
+    <h3>Core Purpose</h3>
+    <p>Provides crash recovery and transaction support</p>
+
+    <h3>Key Features</h3>
+    <ul>
+      <li>Transaction logging</li>
+      <li>Crash recovery</li>
+      <li>Operation rollback</li>
+      <li>Data consistency maintenance</li>
+    </ul>
+
+    <h2 id="test-module">Test Module</h2>
+    <h3>Core Purpose</h3>
+    <p>Validates system functionality</p>
+
+    <h3>Key Components</h3>
+    <ul>
+      <li>Integration tests</li>
+      <li>Unit tests for each module</li>
+      <li>Performance benchmarks</li>
+    </ul>
+
+    <h3>Test Coverage</h3>
+    <ul>
+      <li>File operations</li>
+      <li>Cache performance</li>
+      <li>Concurrent access</li>
+      <li>Error handling</li>
+      <li>Recovery scenarios</li>
+    </ul>
+
+    <h2 id="integration-points">Integration Points</h2>
+
+    <h3>1. FS ↔ Cache</h3>
+    <ul>
+      <li>File system uses cache for fast access</li>
+      <li>Cache updates on file modifications</li>
+    </ul>
+
+    <h3>2. FS ↔ Storage</h3>
+    <ul>
+      <li>File system translates operations to block operations</li>
+      <li>Block manager handles physical storage</li>
+    </ul>
+
+    <h3>3. Threading ↔ All Modules</h3>
+    <ul>
+      <li>Ensures thread-safe operations</li>
+      <li>Manages concurrent access</li>
+    </ul>
+
+    <h3>4. Journal ↔ FS</h3>
+    <ul>
+      <li>Logs operations for recovery</li>
+      <li>Maintains system consistency</li>
+    </ul>
+
+    <h2 id="test-commands">Test Commands and Usage Guide</h2>
+
+    <h3>Prerequisites</h3>
+    <div class="note">
+      <ul>
+        <li>Ensure all executables are compiled</li>
+        <li>
+          Required test directories exist (<code>test_fs/</code>,
+          <code>test_cache_fs/</code>)
+        </li>
+        <li>Sufficient disk space for test files</li>
+      </ul>
+    </div>
+
+    <h3>1. Integration Tests</h3>
+    <div class="command">
+      # Run complete integration test suite<br />
+      ./integration_test.exe
+    </div>
+    <div class="output">
+      === Running Basic Functionality Test ===<br />
+      Test 1: File Creation and Writing<br />
+      Test 2: Cache Performance<br />
+      Test 3: Multiple Files and Directory Operations<br />
+      Test 4: Concurrent Access<br />
+      Test 5: Cleanup and Verification
+    </div>
+
+    <h3>2. File System Tests</h3>
+    <div class="command">
+      # Run file system specific tests<br />
+      ./fs_test.exe
+    </div>
+
+    <h3>3. Cache Tests</h3>
+    <div class="command">
+      # Run cache performance tests<br />
+      ./test_fs_cache.exe
+    </div>
+
+    <h3>4. Performance Testing</h3>
+    <div class="command">
+      # Run complete performance benchmark<br />
+      ./integration_test.exe --benchmark
+    </div>
+    <div class="output">
+      File Operations Benchmark:<br />
+      - Create: X ops/sec<br />
+      - Read: X ops/sec<br />
+      - Write: X ops/sec<br />
+      - Delete: X ops/sec<br />
+      Cache Performance:<br />
+      - Hit rate: X%<br />
+      - Miss rate: X%<br />
+      - Average latency: X ms
+    </div>
+
+    <h3>Common Test Options</h3>
+    <div class="command">
+      --verbose # Display detailed test information<br />
+      --quiet # Suppress all output except errors<br />
+      --log=&lt;path&gt; # Save test output to specified file<br />
+      --timeout=&lt;sec&gt; # Set test timeout in seconds
+    </div>
+
+    <h2>8. Troubleshooting Tests</h2>
+    <div class="note">
+      <p>If tests fail, check:</p>
+      <ol>
+        <li>Directory permissions</li>
+        <li>Available disk space</li>
+        <li>No other processes accessing test directories</li>
+        <li>All dependencies are properly installed</li>
+      </ol>
+    </div>
+
+    <h3>Common Error Resolution</h3>
+    <div class="command">
+      # Reset test environment<br />
+      rm -rf test_fs/* test_cache_fs/*<br />
+      mkdir -p test_fs test_cache_fs<br />
+      <br />
+      # Check file permissions<br />
+      chmod 755 test_fs test_cache_fs<br />
+      <br />
+      # Verify executables<br />
+      ls -l *.exe
+    </div>
+
+    <h2>Performance Metrics</h2>
+    <p>Based on test results:</p>
+    <ul>
+      <li>First read: ~20ms (from disk)</li>
+      <li>Second read: ~7ms (from cache)</li>
+      <li>Third read: ~3ms (cached and optimized)</li>
+      <li>Performance improvement: 3-7x with caching</li>
+    </ul>
+
+    <h2>Future Enhancements</h2>
+    <ol>
+      <li>Block compression</li>
+      <li>Block encryption</li>
+      <li>Storage expansion capability</li>
+      <li>Block caching improvements</li>
+      <li>Defragmentation</li>
+      <li>Distributed file system support</li>
+      <li>Enhanced security features</li>
+      <li>Cloud storage integration</li>
+    </ol>
+  </body>
+</html>

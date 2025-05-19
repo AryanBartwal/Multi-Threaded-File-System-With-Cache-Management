@@ -37,7 +37,6 @@ public:
     virtual size_t getFreeBlockCount() const = 0;
     virtual size_t getTotalBlockCount() const = 0;
 
-    BlockManager();
     ~BlockManager();
 
 protected:

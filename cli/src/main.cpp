@@ -1,7 +1,6 @@
-#include "../fs/include/fs/filesystem.hpp"
-#include "../common/include/common/logger.hpp"
-#include "../storage/include/storage/block_manager.h"
-#include "../cache/include/cache/lru_cache.hpp"
+#include "fs/filesystem.hpp"
+#include "common/logger.hpp"
+#include "storage/block_manager.h"
 #include <iostream>
 #include <string>
 #include <sstream>
