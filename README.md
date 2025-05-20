@@ -1,145 +1,79 @@
 # Multi-Threaded File System With Cache Management
 
-A high-performance, thread-safe file system implementation with integrated caching and journaling capabilities.
-
-## Project Structure
-
-```
-.
-├── src/                    # Source code
-│   ├── filesystem/        # Core file system operations
-│   │   ├── FileSystem.cpp
-│   │   └── FileSystem.h
-│   ├── cache/            # LRU cache implementation
-│   │   ├── Cache.cpp
-│   │   └── Cache.h
-│   ├── storage/          # Disk I/O and block management
-│   │   ├── BlockManager.cpp
-│   │   └── BlockManager.h
-│   ├── journal/          # Crash recovery system
-│   │   ├── Journal.cpp
-│   │   └── Journal.h
-│   └── cli/              # Command-line interface
-│       ├── main.cpp
-│       └── CLI.h
-├── include/              # Header files
-├── test/                # Unit tests
-├── CMakeLists.txt       # Build configuration
-└── README.md           # Project documentation
-```
-
-## Features
-
-### Implemented
-
-- Thread-safe file operations with mutex-based synchronization
-- LRU caching system with configurable size
-- Basic block management for file storage
-- Command-line interface supporting:
-  - File operations (create, read, write, delete)
-  - Directory operations (create, list, remove)
-  - Cache management (view cache status)
-- Journaling system for crash recovery
-- Comprehensive error handling and logging
-
-### In Progress
-
-- Performance optimization
-- Advanced caching strategies
-- Extended file system features
+A high-performance file system implementation with multi-threading support and cache management capabilities.
 
 ## Prerequisites
 
-- C++17 or later
-- CMake 3.15+
-- A modern C++ compiler (GCC 7+, Clang 6+, or MSVC 2019+)
+- CMake (version 3.15 or higher)
+- C++17 compatible compiler (GCC, Clang, or MSVC)
+- Git
 
 ## Building the Project
 
+1. Clone the repository:
+
 ```bash
-# Create build directory
-mkdir build && cd build
+git clone <repository-url>
+cd Multi-Threaded-File-System-With-Cache-Management
+```
 
-# Generate build files
+2. Create a build directory and navigate to it:
+
+```bash
+mkdir build
+cd build
+```
+
+3. Configure the project with CMake:
+
+```bash
 cmake ..
+```
 
-# Build the project
+4. Build the project:
+
+```bash
 cmake --build .
 ```
 
-## Usage
+## Running the Project
 
-The system provides a command-line interface with the following commands:
+After building, you can find the executables in the `build` directory:
 
-```
-File Operations:
-  create <path> <size>    Create a new file
-  read <path>            Read file contents
-  write <path> <data>    Write data to file
-  delete <path>          Delete a file
+- The main CLI application will be in `build/cli/`
+- Test executables will be in `build/test/`
 
-Directory Operations:
-  mkdir <path>           Create a new directory
-  ls <path>              List directory contents
-  rmdir <path>           Remove a directory
+To run the CLI application:
 
-Cache Management:
-  cache                  Show cache status
-
-System:
-  exit                   Exit the program
-  help                   Show this help message
+```bash
+./cli/mtfs-cli
 ```
 
-## Implementation Details
+## Project Structure
 
-### File System
+- `cli/` - Command-line interface implementation
+- `fs/` - Core file system implementation
+- `cache/` - Cache management system
+- `storage/` - Storage layer implementation
+- `journal/` - Journaling system
+- `common/` - Common utilities and shared code
+- `test/` - Test suite
+- `threading/` - Threading utilities
+- `benchmark/` - Performance benchmarking tools
 
-- Thread-safe operations using mutex locks
-- Hierarchical file structure
-- Support for basic file operations
+## Development
 
-### Cache System
+The project uses CMake as its build system and follows modern C++ practices. The code is written in C++17.
 
-- LRU (Least Recently Used) eviction policy
-- Configurable cache size
-- Thread-safe cache operations
+### Building Tests
 
-### Block Management
+Tests are automatically built when you build the project. To run the tests:
 
-- Efficient block allocation and deallocation
-- Block-level operations for file storage
-- Journaling for crash recovery
-
-### Journaling
-
-- Transaction-based logging
-- Crash recovery support
-- Atomic operations
-
-## Development Guidelines
-
-1. **Code Style**
-
-   - Follow Google C++ Style Guide
-   - Use meaningful variable and function names
-   - Document public APIs
-
-2. **Threading**
-
-   - Use mutex locks for thread safety
-   - Document thread safety guarantees
-   - Avoid deadlocks
-
-3. **Error Handling**
-   - Use exceptions for exceptional conditions
-   - Log errors appropriately
-   - Maintain strong exception guarantees
+```bash
+cd build
+ctest
+```
 
 ## License
 
-[MIT License](LICENSE)
-
-## Contributing
-
-See [CONTRIBUTING.md](docs/CONTRIBUTING.md) for detailed guidelines.
+[Add your license information here]
