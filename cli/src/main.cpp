@@ -13,14 +13,32 @@ using namespace mtfs::fs;
 using namespace mtfs::common;
 using namespace mtfs::cache;
 
-// Helper function to split command line into tokens
+// Helper function to split command line into tokens, handling quoted strings
 std::vector<std::string> splitCommand(const std::string& cmd) {
     std::vector<std::string> tokens;
     std::istringstream iss(cmd);
     std::string token;
-    while (iss >> token) {
-        tokens.push_back(token);
+    bool inQuotes = false;
+    std::string currentToken;
+    
+    char c;
+    while (iss.get(c)) {
+        if (c == '"') {
+            inQuotes = !inQuotes;
+        } else if (c == ' ' && !inQuotes) {
+            if (!currentToken.empty()) {
+                tokens.push_back(currentToken);
+                currentToken.clear();
+            }
+        } else {
+            currentToken += c;
+        }
     }
+    
+    if (!currentToken.empty()) {
+        tokens.push_back(currentToken);
+    }
+    
     return tokens;
 }
 

@@ -98,6 +98,8 @@ bool FileSystem::createFile(const std::string& path) {
 
 bool FileSystem::writeFile(const std::string& path, const std::string& data) {
     try {
+        auto startTime = std::chrono::high_resolution_clock::now();
+        
         if (authManager && !authManager->isLoggedIn()) {
             throw FSException("Authentication required to write file");
         }
@@ -120,12 +122,18 @@ bool FileSystem::writeFile(const std::string& path, const std::string& data) {
         file << data;
         enhancedCache->put(path, data);
         stats.totalWrites++;
+        stats.totalFileOperations++;
 
         // Update metadata
         FileMetadata& meta = fileMetadataMap[path];
         meta.size = data.size();
         meta.modifiedAt = std::chrono::system_clock::now();
         saveMetadata();
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+        double writeTime = duration.count() / 1000.0; // Convert to milliseconds
+        stats.avgWriteTime = (stats.avgWriteTime * (stats.totalWrites - 1) + writeTime) / stats.totalWrites;
 
         return true;
     } catch (const std::exception& e) {
@@ -146,13 +154,20 @@ std::string FileSystem::readFile(const std::string& path) {
             if (meta.owner != user && !authManager->isAdmin(user)) {
                 throw FSException("Permission denied: not owner or admin");
             }
-        }
-        // Try to get from cache first
+        }        // Try to get from cache first
+        auto startTime = std::chrono::high_resolution_clock::now();
         try {
             std::string cachedData = enhancedCache->get(path);
             LOG_DEBUG("Cache hit for file: " + path);
             stats.cacheHits++;
             stats.totalReads++;
+            stats.totalFileOperations++;
+            
+            auto endTime = std::chrono::high_resolution_clock::now();
+            auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+            double readTime = duration.count() / 1000.0; // Convert to milliseconds
+            stats.avgReadTime = (stats.avgReadTime * (stats.totalReads - 1) + readTime) / stats.totalReads;
+            
             return cachedData;
         } catch (const std::runtime_error&) {
             // Cache miss, continue to read from disk
@@ -160,6 +175,7 @@ std::string FileSystem::readFile(const std::string& path) {
         LOG_DEBUG("Cache miss for file: " + path);
         stats.cacheMisses++;
         stats.totalReads++;
+        stats.totalFileOperations++;
         std::string fullPath = rootPath + "/" + path;
         if (!exists(path)) {
             throw FileNotFoundException(path);
@@ -167,11 +183,16 @@ std::string FileSystem::readFile(const std::string& path) {
         std::ifstream file(fullPath);
         if (!file) {
             throw FSException("Failed to open file for reading: " + path);
-        }
-        std::stringstream buffer;
+        }        std::stringstream buffer;
         buffer << file.rdbuf();
         std::string data = buffer.str();
         enhancedCache->put(path, data);
+        
+        auto endTime = std::chrono::high_resolution_clock::now();
+        auto duration = std::chrono::duration_cast<std::chrono::microseconds>(endTime - startTime);
+        double readTime = duration.count() / 1000.0; // Convert to milliseconds
+        stats.avgReadTime = (stats.avgReadTime * (stats.totalReads - 1) + readTime) / stats.totalReads;
+        
         return data;
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error reading file: ") + e.what());
@@ -435,13 +456,17 @@ void FileSystem::resetCacheStatistics() {
 }
 
 void FileSystem::showCacheAnalytics() const {
-    std::cout << "\n======== File System Cache Analytics ========\n";    enhancedCache->showCacheAnalytics();
+    std::cout << "\n======== File System Cache Analytics ========\n";
+    enhancedCache->showCacheAnalytics();
     
-    auto cacheStats = getCacheStatistics();
+    // Get enhanced cache statistics for consistent reporting
+    auto cacheStats = enhancedCache->getStatistics();
     std::cout << "File Operations:\n";
     std::cout << "  Total Reads: " << this->stats.totalReads << "\n";
     std::cout << "  Total Writes: " << this->stats.totalWrites << "\n";
-    std::cout << "  Cache Hit Rate: " << std::fixed << std::setprecision(2) 
+    std::cout << "  Enhanced Cache Hit Rate: " << std::fixed << std::setprecision(2) 
+              << cacheStats.hitRate << "%\n";
+    std::cout << "  Legacy Cache Hit Rate: " << std::fixed << std::setprecision(2) 
               << this->stats.getCacheHitRate() << "%\n";
     std::cout << "=============================================\n\n";
 }
@@ -514,6 +539,53 @@ bool FileSystem::renameFile(const std::string& oldName, const std::string& newNa
     }
 }
 
+// Helper function for glob pattern matching
+bool FileSystem::matchesPattern(const std::string& filename, const std::string& pattern) {
+    // If pattern contains wildcards (* or ?), use glob matching
+    if (pattern.find('*') != std::string::npos || pattern.find('?') != std::string::npos) {
+        // Handle glob patterns with * and ?
+        size_t patternPos = 0;
+        size_t filenamePos = 0;
+        size_t starIdx = std::string::npos;
+        size_t match = 0;
+        
+        while (filenamePos < filename.length()) {
+            // If we have a direct character match or a '?' wildcard
+            if (patternPos < pattern.length() && 
+                (pattern[patternPos] == filename[filenamePos] || pattern[patternPos] == '?')) {
+                filenamePos++;
+                patternPos++;
+            }
+            // If we encounter a '*' wildcard
+            else if (patternPos < pattern.length() && pattern[patternPos] == '*') {
+                starIdx = patternPos;
+                match = filenamePos;
+                patternPos++;
+            }
+            // If we had a previous '*' wildcard, backtrack to it
+            else if (starIdx != std::string::npos) {
+                patternPos = starIdx + 1;
+                match++;
+                filenamePos = match;
+            }
+            // No match
+            else {
+                return false;
+            }
+        }
+        
+        // Skip any remaining '*' at the end of pattern
+        while (patternPos < pattern.length() && pattern[patternPos] == '*') {
+            patternPos++;
+        }
+        
+        return patternPos == pattern.length();
+    } else {
+        // For patterns without wildcards, do substring matching (like original behavior)
+        return filename.find(pattern) != std::string::npos;
+    }
+}
+
 std::vector<std::string> FileSystem::findFiles(const std::string& pattern, const std::string& directory) {
     try {
         LOG_INFO("Searching for files with pattern: " + pattern + " in directory: " + directory);
@@ -521,10 +593,14 @@ std::vector<std::string> FileSystem::findFiles(const std::string& pattern, const
         std::vector<std::string> results;
         std::vector<std::string> files = listDirectory(directory);
         
-        // Simple pattern matching (contains the pattern)
+        // Use glob pattern matching
         for (const auto& file : files) {
-            if (file.find(pattern) != std::string::npos) {
-                results.push_back(directory + "/" + file);
+            if (matchesPattern(file, pattern)) {
+                if (directory == ".") {
+                    results.push_back(file);
+                } else {
+                    results.push_back(directory + "/" + file);
+                }
             }
         }
         
@@ -553,6 +629,7 @@ PerformanceStats FileSystem::getStats() const {
 
 void FileSystem::resetStats() {
     stats = PerformanceStats();
+    enhancedCache->resetStatistics();
     LOG_INFO("Performance statistics reset");
 }
 
@@ -560,14 +637,19 @@ void FileSystem::showPerformanceDashboard() const {
     auto now = std::chrono::system_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - stats.lastResetTime);
     
+    // Get enhanced cache statistics for accurate reporting
+    auto cacheStats = enhancedCache->getStatistics();
+    
     std::cout << "\n=================== PERFORMANCE DASHBOARD ===================\n";
     std::cout << "Monitoring Period: " << duration.count() << " seconds\n";
     std::cout << "-----------------------------------------------------------\n";
     std::cout << "CACHE STATISTICS:\n";
-    std::cout << "  Cache Hits: " << stats.cacheHits << "\n";
-    std::cout << "  Cache Misses: " << stats.cacheMisses << "\n";
-    std::cout << "  Cache Hit Rate: " << std::fixed << std::setprecision(2) << stats.getCacheHitRate() << "%\n";
-    std::cout << "  Cache Size: " << getCacheSize() << "/" << CACHE_CAPACITY << "\n";
+    std::cout << "  Cache Hits: " << cacheStats.hits << "\n";
+    std::cout << "  Cache Misses: " << cacheStats.misses << "\n";
+    std::cout << "  Cache Hit Rate: " << std::fixed << std::setprecision(2) << cacheStats.hitRate << "%\n";
+    std::cout << "  Cache Size: " << (cacheStats.hits + cacheStats.misses > 0 ? enhancedCache->getHotKeys(1000).size() : 0) << "/" << CACHE_CAPACITY << "\n";
+    std::cout << "  Pinned Items: " << cacheStats.pinnedItems << "\n";
+    std::cout << "  Prefetched Items: " << cacheStats.prefetchedItems << "\n";
     std::cout << "-----------------------------------------------------------\n";
     std::cout << "FILE OPERATIONS:\n";
     std::cout << "  Total Reads: " << stats.totalReads << "\n";

@@ -131,9 +131,25 @@ template<typename Key, typename Value>
 void EnhancedLRUCache<Key, Value>::prefetch(const Key& key, const Value& value) {
     std::lock_guard<std::mutex> lock(cacheMutex);
     
-    if (lookup.find(key) == lookup.end() && entries.size() < maxCapacity) {
-        entries.emplace_front(key, value);
-        lookup[key] = entries.begin();
+    if (lookup.find(key) == lookup.end()) {
+        // Key doesn't exist, add it if there's space
+        if (entries.size() < maxCapacity) {
+            entries.emplace_front(key, value);
+            lookup[key] = entries.begin();
+            stats.prefetchedItems++;
+        } else {
+            // Need to evict, but treat as prefetch
+            evict();
+            entries.emplace_front(key, value);
+            lookup[key] = entries.begin();
+            stats.prefetchedItems++;
+        }
+    } else {
+        // Key exists, update value and count as prefetch
+        auto it = lookup.find(key);
+        it->second->value = value;
+        it->second->lastAccessed = std::chrono::system_clock::now();
+        moveToFront(it->second);
         stats.prefetchedItems++;
     }
 }
@@ -308,11 +324,21 @@ template<typename Key, typename Value>
 void LFUCache<Key, Value>::prefetch(const Key& key, const Value& value) {
     std::lock_guard<std::mutex> lock(cacheMutex);
     
-    if (keyToEntry.find(key) == keyToEntry.end() && keyToEntry.size() < maxCapacity) {
+    auto it = keyToEntry.find(key);
+    if (it == keyToEntry.end()) {
+        // Key doesn't exist, add it
+        if (keyToEntry.size() >= maxCapacity) {
+            evict();
+        }
         keyToEntry[key] = EntryType(key, value);
         keyToFreq[key] = 1;
         frequencies[1].push_back(key);
         minFrequency = 1;
+        stats.prefetchedItems++;
+    } else {
+        // Key exists, update value and count as prefetch
+        it->second.value = value;
+        it->second.lastAccessed = std::chrono::system_clock::now();
         stats.prefetchedItems++;
     }
 }
@@ -488,9 +514,19 @@ template<typename Key, typename Value>
 void FIFOCache<Key, Value>::prefetch(const Key& key, const Value& value) {
     std::lock_guard<std::mutex> lock(cacheMutex);
     
-    if (entries.find(key) == entries.end() && entries.size() < maxCapacity) {
+    auto it = entries.find(key);
+    if (it == entries.end()) {
+        // Key doesn't exist, add it
+        if (entries.size() >= maxCapacity) {
+            evict();
+        }
         entries[key] = EntryType(key, value);
         insertionOrder.push(key);
+        stats.prefetchedItems++;
+    } else {
+        // Key exists, update value and count as prefetch
+        it->second.value = value;
+        it->second.lastAccessed = std::chrono::system_clock::now();
         stats.prefetchedItems++;
     }
 }

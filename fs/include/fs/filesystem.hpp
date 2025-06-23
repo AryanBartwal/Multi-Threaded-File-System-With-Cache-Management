@@ -120,6 +120,10 @@ protected:
 
 private:
     FileMetadata resolvePath(const std::string& path);
+    
+    // Helper function for glob pattern matching
+    bool matchesPattern(const std::string& filename, const std::string& pattern);
+    
     std::string rootPath;
     
     // Enhanced cache for file contents
