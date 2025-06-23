@@ -141,6 +141,115 @@ exit
 ```
 *Cleanly exits the CLI application.*
 
+## Complete CLI Test Suite
+
+This comprehensive test suite covers all CLI commands and can be used for thorough testing and demonstration purposes. Copy and paste each command into the CLI to test all features systematically.
+
+### User Management Tests
+```bash
+register testuser password123
+login testuser password123
+whoami
+logout
+register adminuser adminpass admin
+login adminuser adminpass
+whoami
+```
+
+### Basic File Operations Tests
+```bash
+create-file test1.txt
+write-file test1.txt "Hello World! This is a test file."
+read-file test1.txt
+file-info test1.txt
+create-file test2.txt
+write-file test2.txt "This is the second test file with different content."
+```
+
+### Directory Operations Tests
+```bash
+create-dir testdir1
+create-dir testdir2
+list-dir .
+list-dir testdir1
+```
+
+### File Management Tests
+```bash
+copy-file test1.txt test1_copy.txt
+move-file test2.txt testdir1/test2_moved.txt
+rename-file test1_copy.txt test1_renamed.txt
+list-dir .
+list-dir testdir1
+```
+
+### Search Operations Tests
+```bash
+find-file "test*"
+find-file "*.txt"
+find-file "test" testdir1
+```
+
+### Compression Tests
+```bash
+compress-file test1.txt
+compression-stats
+decompress-file test1.txt
+```
+
+### Backup Operations Tests
+```bash
+create-backup my_first_backup
+list-backups
+backup-dashboard
+create-file important.txt
+write-file important.txt "This is important data to backup"
+create-backup my_second_backup
+list-backups
+```
+
+### Cache Management Tests
+```bash
+get-cache-policy
+set-cache-policy LRU
+get-cache-policy
+set-cache-policy LFU
+set-cache-policy FIFO
+pin-file test1_renamed.txt
+prefetch-file important.txt
+cache-analytics
+hot-files 5
+```
+
+### Statistics Tests
+```bash
+show-stats
+reset-stats
+show-stats
+```
+
+### Restore Testing
+```bash
+delete-file important.txt
+list-dir .
+restore-backup my_second_backup
+list-dir .
+```
+
+### Cleanup Tests
+```bash
+delete-file test1_renamed.txt
+delete-file testdir1/test2_moved.txt
+delete-file important.txt
+delete-backup my_first_backup
+delete-backup my_second_backup
+remove-user testuser
+remove-user adminuser
+exit
+```
+
+**Note**: This test suite creates temporary files and users for testing purposes. The cleanup section at the end removes all test artifacts to restore the system to its original state.
+
 ## Project Structure
 
 The project is organized into modular components:
