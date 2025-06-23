@@ -30,6 +30,7 @@ add_subdirectory(storage)
 add_subdirectory(journal)
 add_subdirectory(test)
 add_subdirectory(cli)
+add_subdirectory(benchmark)
 
 # Enable testing
 enable_testing()
@@ -38,4 +39,4 @@ enable_testing()
 install(TARGETS
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib) 
+    ARCHIVE DESTINATION lib)

@@ -1,4 +1,5 @@
 #include "fs/filesystem.hpp"
+#include "fs/compression.hpp"
 #include "common/logger.hpp"
 #include "common/error.hpp"
 #include <direct.h>
@@ -7,23 +8,71 @@
 #include <sys/types.h>
 #include <fstream>
 #include <sstream>
+#include <iomanip>
+#include <iostream>
+#include <cstdio>
 
 namespace mtfs::fs {
 
 using namespace mtfs::common;  // Add this to use exceptions from common namespace
 
-FileSystem::FileSystem(const std::string& rootPath) 
-    : rootPath(rootPath), fileCache(CACHE_CAPACITY) {
+FileSystem::FileSystem(const std::string& rootPath, mtfs::common::AuthManager* auth)
+    : rootPath(rootPath), fileCache(CACHE_CAPACITY),
+      enhancedCache(std::make_unique<cache::CacheManager<std::string, std::string>>(CACHE_CAPACITY)),
+      authManager(auth),
+      metadataFilePath(rootPath + "/.mtfs_metadata") {
     LOG_INFO("Initializing filesystem at: " + rootPath);
     _mkdir(rootPath.c_str());
+    loadMetadata();
+    
+    // Initialize backup manager
+    std::string backupDir = rootPath + "_backups";
+    try {
+        backupManager = std::make_unique<BackupManager>(backupDir);
+        LOG_INFO("Backup manager initialized at: " + backupDir);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to initialize backup manager: " + std::string(e.what()));
+    }
 }
 
-std::shared_ptr<FileSystem> FileSystem::create(const std::string& rootPath) {
-    return std::shared_ptr<FileSystem>(new FileSystem(rootPath));
+std::shared_ptr<FileSystem> FileSystem::create(const std::string& rootPath, mtfs::common::AuthManager* auth) {
+    return std::shared_ptr<FileSystem>(new FileSystem(rootPath, auth));
+}
+
+bool FileSystem::saveMetadata() const {
+    std::ofstream ofs(metadataFilePath, std::ios::trunc);
+    if (!ofs) return false;
+    for (const auto& [path, meta] : fileMetadataMap) {
+        ofs << path << '\t' << meta.owner << '\t' << meta.permissions << '\t' << meta.size << '\t' << meta.isDirectory << '\n';
+    }
+    return true;
+}
+
+bool FileSystem::loadMetadata() {
+    std::ifstream ifs(metadataFilePath);
+    if (!ifs) return false;
+    fileMetadataMap.clear();
+    std::string path, owner;
+    uint32_t permissions;
+    std::size_t size;
+    int isDir;
+    while (ifs >> path >> owner >> permissions >> size >> isDir) {
+        FileMetadata meta;
+        meta.name = path;
+        meta.owner = owner;
+        meta.permissions = permissions;
+        meta.size = size;
+        meta.isDirectory = (isDir != 0);
+        fileMetadataMap[path] = meta;
+    }
+    return true;
 }
 
 bool FileSystem::createFile(const std::string& path) {
     try {
+        if (authManager && !authManager->isLoggedIn()) {
+            throw FSException("Authentication required to create file");
+        }
         std::string fullPath = rootPath + "/" + path;
         std::ofstream file(fullPath);
         if (!file) {
@@ -31,6 +80,15 @@ bool FileSystem::createFile(const std::string& path) {
             throw FSException("Failed to create file: " + path);
         }
         file.close();
+        // Set file owner and persist metadata
+        FileMetadata meta;
+        meta.name = path;
+        meta.owner = authManager ? authManager->getCurrentUser() : "unknown";
+        meta.permissions = 0644;
+        meta.size = 0;
+        meta.isDirectory = false;
+        fileMetadataMap[path] = meta;
+        saveMetadata();
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error creating file: ") + e.what());
@@ -40,19 +98,35 @@ bool FileSystem::createFile(const std::string& path) {
 
 bool FileSystem::writeFile(const std::string& path, const std::string& data) {
     try {
+        if (authManager && !authManager->isLoggedIn()) {
+            throw FSException("Authentication required to write file");
+        }
+        // Permission check: only owner or admin can write
+        if (authManager) {
+            FileMetadata meta = getFileInfo(path);
+            std::string user = authManager->getCurrentUser();
+            if (meta.owner != user && !authManager->isAdmin(user)) {
+                throw FSException("Permission denied: not owner or admin");
+            }
+        }
         std::string fullPath = rootPath + "/" + path;
         if (!exists(path)) {
             throw FileNotFoundException(path);
         }
-
         std::ofstream file(fullPath);
         if (!file) {
             throw FSException("Failed to open file for writing: " + path);
         }
         file << data;
-        
-        // Update cache with new content
-        fileCache.put(path, data);
+        enhancedCache->put(path, data);
+        stats.totalWrites++;
+
+        // Update metadata
+        FileMetadata& meta = fileMetadataMap[path];
+        meta.size = data.size();
+        meta.modifiedAt = std::chrono::system_clock::now();
+        saveMetadata();
+
         return true;
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error writing file: ") + e.what());
@@ -62,31 +136,42 @@ bool FileSystem::writeFile(const std::string& path, const std::string& data) {
 
 std::string FileSystem::readFile(const std::string& path) {
     try {
-        // Try to get from cache first
-        std::string cachedData;
-        if (fileCache.get(path, cachedData)) {
-            LOG_DEBUG("Cache hit for file: " + path);
-            return cachedData;
+        if (authManager && !authManager->isLoggedIn()) {
+            throw FSException("Authentication required to read file");
         }
-
-        // Cache miss, read from disk
+        // Permission check: only owner or admin can read (customize as needed)
+        if (authManager) {
+            FileMetadata meta = getFileInfo(path);
+            std::string user = authManager->getCurrentUser();
+            if (meta.owner != user && !authManager->isAdmin(user)) {
+                throw FSException("Permission denied: not owner or admin");
+            }
+        }
+        // Try to get from cache first
+        try {
+            std::string cachedData = enhancedCache->get(path);
+            LOG_DEBUG("Cache hit for file: " + path);
+            stats.cacheHits++;
+            stats.totalReads++;
+            return cachedData;
+        } catch (const std::runtime_error&) {
+            // Cache miss, continue to read from disk
+        }
         LOG_DEBUG("Cache miss for file: " + path);
+        stats.cacheMisses++;
+        stats.totalReads++;
         std::string fullPath = rootPath + "/" + path;
         if (!exists(path)) {
             throw FileNotFoundException(path);
         }
-
         std::ifstream file(fullPath);
         if (!file) {
             throw FSException("Failed to open file for reading: " + path);
         }
-
         std::stringstream buffer;
         buffer << file.rdbuf();
         std::string data = buffer.str();
-        
-        // Add to cache
-        fileCache.put(path, data);
+        enhancedCache->put(path, data);
         return data;
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error reading file: ") + e.what());
@@ -96,13 +181,24 @@ std::string FileSystem::readFile(const std::string& path) {
 
 bool FileSystem::deleteFile(const std::string& path) {
     try {
+        if (authManager && !authManager->isLoggedIn()) {
+            throw FSException("Authentication required to delete file");
+        }
+        if (authManager) {
+            FileMetadata meta = getFileInfo(path);
+            std::string user = authManager->getCurrentUser();
+            if (meta.owner != user && !authManager->isAdmin(user)) {
+                throw FSException("Permission denied: not owner or admin");
+            }
+        }
         std::string fullPath = rootPath + "/" + path;
         if (!exists(path)) {
             throw FileNotFoundException(path);
         }
-
-        // Remove from cache first
+        enhancedCache->clear();
         fileCache.clear();
+        fileMetadataMap.erase(path);
+        saveMetadata();
         return remove(fullPath.c_str()) == 0;
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error deleting file: ") + e.what());
@@ -153,20 +249,18 @@ FileMetadata FileSystem::getMetadata(const std::string& path) {
         std::string fullPath = rootPath + "/" + path;
         if (!exists(path)) {
             throw FileNotFoundException(path);
-        }
-
-        struct stat stats;
-        if (stat(fullPath.c_str(), &stats) != 0) {
+        }        struct stat fileStats;
+        if (stat(fullPath.c_str(), &fileStats) != 0) {
             throw FSException("Failed to get file stats: " + path);
         }
 
         FileMetadata metadata;
         metadata.name = path.substr(path.find_last_of("/\\") + 1);
-        metadata.size = stats.st_size;
-        metadata.isDirectory = (stats.st_mode & S_IFDIR) != 0;
-        metadata.permissions = stats.st_mode & 0777;
-        metadata.modifiedAt = std::chrono::system_clock::from_time_t(stats.st_mtime);
-        metadata.createdAt = std::chrono::system_clock::from_time_t(stats.st_ctime);
+        metadata.size = fileStats.st_size;
+        metadata.isDirectory = (fileStats.st_mode & S_IFDIR) != 0;
+        metadata.permissions = fileStats.st_mode & 0777;
+        metadata.modifiedAt = std::chrono::system_clock::from_time_t(fileStats.st_mtime);
+        metadata.createdAt = std::chrono::system_clock::from_time_t(fileStats.st_ctime);
 
         return metadata;
     } catch (const std::exception& e) {
@@ -185,6 +279,10 @@ void FileSystem::setPermissions(const std::string& path, uint32_t permissions) {
         if (_chmod(fullPath.c_str(), permissions) != 0) {
             throw FSException("Failed to set permissions: " + path);
         }
+
+        // Update metadata
+        fileMetadataMap[path].permissions = permissions;
+        saveMetadata();
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error setting permissions: ") + e.what());
         throw;
@@ -193,9 +291,8 @@ void FileSystem::setPermissions(const std::string& path, uint32_t permissions) {
 
 bool FileSystem::exists(const std::string& path) {
     try {
-        std::string fullPath = rootPath + "/" + path;
-        struct stat stats;
-        return stat(fullPath.c_str(), &stats) == 0;
+        std::string fullPath = rootPath + "/" + path;        struct stat fileStats;
+        return stat(fullPath.c_str(), &fileStats) == 0;
     } catch (const std::exception& e) {
         LOG_ERROR(std::string("Error checking existence: ") + e.what());
         throw;
@@ -266,12 +363,397 @@ FileMetadata FileSystem::resolvePath(const std::string& path) {
 
 // Cache control methods
 void FileSystem::clearCache() {
-    fileCache.clear();
+    enhancedCache->clear();
+    fileCache.clear(); // Also clear legacy cache for compatibility
     LOG_INFO("File system cache cleared");
 }
 
 size_t FileSystem::getCacheSize() const {
-    return fileCache.size();
+    return enhancedCache->getStatistics().totalAccesses > 0 ? 
+           enhancedCache->getStatistics().hits + enhancedCache->getStatistics().misses : 
+           fileCache.size();
 }
 
-} // namespace mtfs::fs 
+// Enhanced cache management methods
+void FileSystem::setCachePolicy(cache::CachePolicy policy) {
+    enhancedCache->setPolicy(policy);
+    LOG_INFO("Cache policy changed to: " + std::to_string(static_cast<int>(policy)));
+}
+
+cache::CachePolicy FileSystem::getCachePolicy() const {
+    return enhancedCache->getPolicy();
+}
+
+void FileSystem::resizeCache(size_t newCapacity) {
+    enhancedCache->resize(newCapacity);
+    LOG_INFO("Cache resized to: " + std::to_string(newCapacity));
+}
+
+void FileSystem::pinFile(const std::string& path) {
+    try {
+        // Ensure file is in cache first
+        if (!enhancedCache->contains(path)) {
+            std::string data = readFile(path);
+        }
+        enhancedCache->pin(path);
+        LOG_DEBUG("File pinned in cache: " + path);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to pin file: " + std::string(e.what()));
+    }
+}
+
+void FileSystem::unpinFile(const std::string& path) {
+    enhancedCache->unpin(path);
+    LOG_DEBUG("File unpinned from cache: " + path);
+}
+
+bool FileSystem::isFilePinned(const std::string& path) const {
+    return enhancedCache->isPinned(path);
+}
+
+void FileSystem::prefetchFile(const std::string& path) {
+    try {        if (!exists(path)) {
+            LOG_ERROR("Cannot prefetch non-existent file: " + path);
+            return;
+        }
+        
+        std::string data = readFile(path);
+        enhancedCache->prefetch(path, data);
+        LOG_DEBUG("File prefetched: " + path);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Failed to prefetch file: " + std::string(e.what()));
+    }
+}
+
+cache::CacheStatistics FileSystem::getCacheStatistics() const {
+    return enhancedCache->getStatistics();
+}
+
+void FileSystem::resetCacheStatistics() {
+    enhancedCache->resetStatistics();
+    LOG_INFO("Cache statistics reset");
+}
+
+void FileSystem::showCacheAnalytics() const {
+    std::cout << "\n======== File System Cache Analytics ========\n";    enhancedCache->showCacheAnalytics();
+    
+    auto cacheStats = getCacheStatistics();
+    std::cout << "File Operations:\n";
+    std::cout << "  Total Reads: " << this->stats.totalReads << "\n";
+    std::cout << "  Total Writes: " << this->stats.totalWrites << "\n";
+    std::cout << "  Cache Hit Rate: " << std::fixed << std::setprecision(2) 
+              << this->stats.getCacheHitRate() << "%\n";
+    std::cout << "=============================================\n\n";
+}
+
+std::vector<std::string> FileSystem::getHotFiles(size_t count) const {
+    return enhancedCache->getHotKeys(count);
+}
+
+// Advanced file operations
+bool FileSystem::copyFile(const std::string& source, const std::string& destination) {
+    try {
+        LOG_INFO("Copying file: " + source + " -> " + destination);
+        
+        // Check if source file exists
+        if (!exists(source)) {
+            throw FileNotFoundException(source);
+        }
+        
+        // Read source file content
+        std::string content = readFile(source);
+        
+        // Create destination file and write content
+        if (!createFile(destination)) {
+            throw FSException("Failed to create destination file: " + destination);
+        }
+        
+        if (!writeFile(destination, content)) {
+            throw FSException("Failed to write to destination file: " + destination);
+        }
+        
+        LOG_INFO("File copied successfully: " + source + " -> " + destination);
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error copying file: " + std::string(e.what()));
+        throw;
+    }
+}
+
+bool FileSystem::moveFile(const std::string& source, const std::string& destination) {
+    try {
+        LOG_INFO("Moving file: " + source + " -> " + destination);
+        
+        // Copy the file first
+        if (!copyFile(source, destination)) {
+            throw FSException("Failed to copy file during move operation");
+        }
+        
+        // Delete the source file
+        if (!deleteFile(source)) {
+            // If delete fails, try to clean up the destination
+            deleteFile(destination);
+            throw FSException("Failed to delete source file during move operation");
+        }
+        
+        LOG_INFO("File moved successfully: " + source + " -> " + destination);
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error moving file: " + std::string(e.what()));
+        throw;
+    }
+}
+
+bool FileSystem::renameFile(const std::string& oldName, const std::string& newName) {
+    try {
+        LOG_INFO("Renaming file: " + oldName + " -> " + newName);
+        return moveFile(oldName, newName);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error renaming file: " + std::string(e.what()));
+        throw;
+    }
+}
+
+std::vector<std::string> FileSystem::findFiles(const std::string& pattern, const std::string& directory) {
+    try {
+        LOG_INFO("Searching for files with pattern: " + pattern + " in directory: " + directory);
+        
+        std::vector<std::string> results;
+        std::vector<std::string> files = listDirectory(directory);
+        
+        // Simple pattern matching (contains the pattern)
+        for (const auto& file : files) {
+            if (file.find(pattern) != std::string::npos) {
+                results.push_back(directory + "/" + file);
+            }
+        }
+        
+        LOG_INFO("Found " + std::to_string(results.size()) + " files matching pattern: " + pattern);
+        return results;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error searching files: " + std::string(e.what()));
+        throw;
+    }
+}
+
+FileMetadata FileSystem::getFileInfo(const std::string& path) {
+    try {
+        LOG_INFO("Getting file info for: " + path);
+        return getMetadata(path);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error getting file info: " + std::string(e.what()));
+        throw;
+    }
+}
+
+// Performance monitoring methods
+PerformanceStats FileSystem::getStats() const {
+    return stats;
+}
+
+void FileSystem::resetStats() {
+    stats = PerformanceStats();
+    LOG_INFO("Performance statistics reset");
+}
+
+void FileSystem::showPerformanceDashboard() const {
+    auto now = std::chrono::system_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::seconds>(now - stats.lastResetTime);
+    
+    std::cout << "\n=================== PERFORMANCE DASHBOARD ===================\n";
+    std::cout << "Monitoring Period: " << duration.count() << " seconds\n";
+    std::cout << "-----------------------------------------------------------\n";
+    std::cout << "CACHE STATISTICS:\n";
+    std::cout << "  Cache Hits: " << stats.cacheHits << "\n";
+    std::cout << "  Cache Misses: " << stats.cacheMisses << "\n";
+    std::cout << "  Cache Hit Rate: " << std::fixed << std::setprecision(2) << stats.getCacheHitRate() << "%\n";
+    std::cout << "  Cache Size: " << getCacheSize() << "/" << CACHE_CAPACITY << "\n";
+    std::cout << "-----------------------------------------------------------\n";
+    std::cout << "FILE OPERATIONS:\n";
+    std::cout << "  Total Reads: " << stats.totalReads << "\n";
+    std::cout << "  Total Writes: " << stats.totalWrites << "\n";
+    std::cout << "  Total File Operations: " << stats.totalFileOperations << "\n";
+    std::cout << "  Average Read Time: " << std::fixed << std::setprecision(3) << stats.avgReadTime << " ms\n";
+    std::cout << "  Average Write Time: " << std::fixed << std::setprecision(3) << stats.avgWriteTime << " ms\n";
+    std::cout << "==========================================================\n\n";
+}
+
+// File compression methods
+bool FileSystem::compressFile(const std::string& filePath) {
+    try {
+        LOG_INFO("Compressing file: " + filePath);
+        
+        if (!exists(filePath)) {
+            throw FileNotFoundException(filePath);
+        }
+        
+        std::string fullPath = rootPath + "/" + filePath;
+        std::string compressedPath = fullPath + ".mtfs";
+        
+        // Read original file size
+        std::ifstream file(fullPath, std::ios::binary | std::ios::ate);
+        size_t originalSize = file.tellg();
+        file.close();
+        
+        // Compress the file
+        if (!FileCompression::compressFile(fullPath, compressedPath)) {
+            throw FSException("Failed to compress file: " + filePath);
+        }
+        
+        // Get compressed file size
+        std::ifstream compressedFile(compressedPath, std::ios::binary | std::ios::ate);
+        size_t compressedSize = compressedFile.tellg();
+        compressedFile.close();
+        
+        // Update statistics
+        compressionStats.addCompressionOperation(originalSize, compressedSize);
+        
+        // Remove original file and rename compressed file
+        std::remove(fullPath.c_str());
+        std::rename(compressedPath.c_str(), fullPath.c_str());
+        
+        double ratio = FileCompression::calculateCompressionRatio(originalSize, compressedSize);
+        LOG_INFO("File compressed successfully. Compression ratio: " + std::to_string(ratio) + "%");
+        
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error compressing file: " + std::string(e.what()));
+        throw;
+    }
+}
+
+bool FileSystem::decompressFile(const std::string& filePath) {
+    try {
+        LOG_INFO("Decompressing file: " + filePath);
+        
+        if (!exists(filePath)) {
+            throw FileNotFoundException(filePath);
+        }
+        
+        std::string fullPath = rootPath + "/" + filePath;
+        
+        // Check if file is actually compressed
+        if (!FileCompression::isCompressed(fullPath)) {
+            throw FSException("File is not compressed: " + filePath);
+        }
+        
+        std::string tempPath = fullPath + ".tmp";
+        
+        // Decompress the file
+        if (!FileCompression::decompressFile(fullPath, tempPath)) {
+            throw FSException("Failed to decompress file: " + filePath);
+        }
+        
+        // Replace original with decompressed
+        std::remove(fullPath.c_str());
+        std::rename(tempPath.c_str(), fullPath.c_str());
+        
+        LOG_INFO("File decompressed successfully: " + filePath);
+        return true;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error decompressing file: " + std::string(e.what()));
+        throw;
+    }
+}
+
+CompressionStats FileSystem::getCompressionStats() const {
+    return compressionStats;
+}
+
+void FileSystem::resetCompressionStats() {
+    compressionStats = CompressionStats();
+    LOG_INFO("Compression statistics reset");
+}
+
+// Backup system methods
+bool FileSystem::createBackup(const std::string& backupName) {
+    try {
+        if (!backupManager) {
+            throw std::runtime_error("Backup manager not initialized");
+        }
+        
+        LOG_INFO("Creating backup: " + backupName);
+        return backupManager->createBackup(backupName, rootPath);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error creating backup: " + std::string(e.what()));
+        throw;
+    }
+}
+
+bool FileSystem::restoreBackup(const std::string& backupName, const std::string& targetDirectory) {
+    try {
+        if (!backupManager) {
+            throw std::runtime_error("Backup manager not initialized");
+        }
+        
+        std::string restoreDir = targetDirectory.empty() ? rootPath + "_restored" : targetDirectory;
+        LOG_INFO("Restoring backup: " + backupName + " to " + restoreDir);
+        return backupManager->restoreBackup(backupName, restoreDir);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error restoring backup: " + std::string(e.what()));
+        throw;
+    }
+}
+
+bool FileSystem::deleteBackup(const std::string& backupName) {
+    try {
+        if (!backupManager) {
+            throw std::runtime_error("Backup manager not initialized");
+        }
+        
+        LOG_INFO("Deleting backup: " + backupName);
+        return backupManager->deleteBackup(backupName);
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error deleting backup: " + std::string(e.what()));
+        throw;
+    }
+}
+
+std::vector<std::string> FileSystem::listBackups() const {
+    try {
+        if (!backupManager) {
+            return {};
+        }
+        
+        auto backups = backupManager->listBackups();
+        std::vector<std::string> backupNames;
+        
+        for (const auto& backup : backups) {
+            backupNames.push_back(backup.backupName);
+        }
+        
+        return backupNames;
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error listing backups: " + std::string(e.what()));
+        return {};
+    }
+}
+
+void FileSystem::showBackupDashboard() const {
+    try {
+        if (!backupManager) {
+            std::cout << "Backup manager not available." << std::endl;
+            return;
+        }
+        
+        backupManager->showBackupDashboard();
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error showing backup dashboard: " + std::string(e.what()));
+        std::cout << "Error displaying backup dashboard: " << e.what() << std::endl;
+    }
+}
+
+BackupStats FileSystem::getBackupStats() const {
+    try {
+        if (!backupManager) {
+            return BackupStats();
+        }
+        
+        return backupManager->getBackupStats();
+    } catch (const std::exception& e) {
+        LOG_ERROR("Error getting backup stats: " + std::string(e.what()));
+        return BackupStats();
+    }
+}
+
+} // namespace mtfs::fs

@@ -2,6 +2,7 @@
 #include <iostream>
 #include <ctime>
 #include <iomanip>
+#include <sstream>
 
 namespace mtfs::common {
 

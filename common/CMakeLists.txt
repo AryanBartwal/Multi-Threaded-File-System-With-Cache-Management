@@ -1,5 +1,6 @@
 add_library(common
     src/logger.cpp
+    src/auth.cpp
 )
 
 target_include_directories(common
@@ -13,4 +14,4 @@ target_include_directories(common
 install(DIRECTORY include/
     DESTINATION include
     FILES_MATCHING PATTERN "*.hpp"
-) 
+)

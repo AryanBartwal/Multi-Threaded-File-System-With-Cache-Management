@@ -1,5 +1,7 @@
 add_library(fs
     src/filesystem.cpp
+    src/compression.cpp
+    src/backup_manager.cpp
 )
 
 target_include_directories(fs
