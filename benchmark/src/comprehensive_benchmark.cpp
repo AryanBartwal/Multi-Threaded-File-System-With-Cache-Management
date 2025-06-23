@@ -1,4 +1,4 @@
-#include <iostream>
+﻿#include <iostream>
 #include <chrono>
 #include <string>
 #include <vector>
@@ -13,6 +13,10 @@
 #include <thread>
 #include <iomanip>
 #include <numeric>
+
+// Include custom filesystem headers
+#include "fs/filesystem.hpp"
+#include "common/auth.hpp"
 
 // Enhanced LRU Cache with statistics tracking
 template<typename K, typename V>
@@ -259,6 +263,7 @@ void benchmark_file_read_write() {
     // Write benchmark with timing
     std::cout << "Testing file write and read operations with side-by-side timing..." << std::endl;
     
+    // STANDARD FILESYSTEM OPERATIONS
     auto start = std::chrono::high_resolution_clock::now();
     std::ofstream file(filename);
     file << data;
@@ -275,11 +280,57 @@ void benchmark_file_read_write() {
     end = std::chrono::high_resolution_clock::now();
     auto read_duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     
-    std::cout << "[STANDARD] File Write (10KB): " << write_duration.count() << " μs" << std::endl;
-    std::cout << "[STANDARD] File Read (10KB):  " << read_duration.count() << " μs" << std::endl;
-    std::cout << "[RESULT]   Data integrity:    " << (data == read_data ? "PASS" : "FAIL") << std::endl;
+    // CUSTOM FILESYSTEM OPERATIONS
+    try {
+        // Initialize custom filesystem
+        static mtfs::common::AuthManager auth;
+        auto fs = mtfs::fs::FileSystem::create("./benchmark_fs", &auth);
+          // Register and login user for permissions
+        auth.registerUser("benchuser", "benchpass", true);
+        auth.authenticate("benchuser", "benchpass");
+        
+        // Custom write timing
+        auto custom_start = std::chrono::high_resolution_clock::now();
+        fs->createFile("custom_benchmark_test.txt");
+        fs->writeFile("custom_benchmark_test.txt", data);
+        auto custom_end = std::chrono::high_resolution_clock::now();
+        auto custom_write_duration = std::chrono::duration_cast<std::chrono::microseconds>(custom_end - custom_start);
+        
+        // Custom read timing
+        custom_start = std::chrono::high_resolution_clock::now();
+        std::string custom_read_data = fs->readFile("custom_benchmark_test.txt");
+        custom_end = std::chrono::high_resolution_clock::now();
+        auto custom_read_duration = std::chrono::duration_cast<std::chrono::microseconds>(custom_end - custom_start);
+        
+        // Display results with comparison        std::cout << "[STANDARD] File Write (10KB): " << write_duration.count() << " us" << std::endl;
+        std::cout << "[CUSTOM]   File Write (10KB): " << custom_write_duration.count() << " us";
+        if (custom_write_duration.count() > 0) {
+            double write_ratio = static_cast<double>(write_duration.count()) / custom_write_duration.count();
+            std::cout << " (" << std::fixed << std::setprecision(1) << write_ratio << "x ";
+            std::cout << (write_ratio > 1 ? "slower" : "faster") << ")";
+        }
+        std::cout << std::endl;
+          std::cout << "[STANDARD] File Read (10KB):  " << read_duration.count() << " microseconds" << std::endl;
+        std::cout << "[CUSTOM]   File Read (10KB):  " << custom_read_duration.count() << " microseconds";
+        if (custom_read_duration.count() > 0) {
+            double read_ratio = static_cast<double>(read_duration.count()) / custom_read_duration.count();
+            std::cout << " (" << std::fixed << std::setprecision(1) << read_ratio << "x ";
+            std::cout << (read_ratio > 1 ? "slower" : "faster") << ")";
+        }
+        std::cout << std::endl;
+        
+        std::cout << "[RESULT]   Data integrity:    " << (data == read_data && data == custom_read_data ? "PASS" : "FAIL") << std::endl;
+        
+        // Cleanup custom filesystem files
+        fs->deleteFile("custom_benchmark_test.txt");
+        
+    } catch (const std::exception& e) {
+        std::cout << "[CUSTOM]   Error: " << e.what() << std::endl;        std::cout << "[STANDARD] File Write (10KB): " << write_duration.count() << " microseconds" << std::endl;
+        std::cout << "[STANDARD] File Read (10KB):  " << read_duration.count() << " microseconds" << std::endl;
+        std::cout << "[RESULT]   Data integrity:    " << (data == read_data ? "PASS" : "FAIL") << std::endl;
+    }
     
-    // Cleanup
+    // Cleanup standard filesystem
     std::filesystem::remove(filename);
 }
 
@@ -290,9 +341,10 @@ void benchmark_file_read_write() {
 void benchmark_directory_operations() {
     std::cout << "\n=== Directory Operations Benchmark ===" << std::endl;
     
-    const int num_dirs = 25;
-    std::cout << "Testing directory creation, listing, and deletion..." << std::endl;
+    const int num_dirs = 10; // Reduced for faster comparison
+    std::cout << "Testing directory creation, listing, and deletion with side-by-side comparison..." << std::endl;
     
+    // STANDARD FILESYSTEM OPERATIONS
     // Directory creation
     auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_dirs; ++i) {
@@ -326,9 +378,66 @@ void benchmark_directory_operations() {
     end = std::chrono::high_resolution_clock::now();
     auto delete_duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     
-    std::cout << "[STANDARD] Create " << num_dirs << " directories: " << create_duration.count() << " μs" << std::endl;
-    std::cout << "[STANDARD] List directories:             " << list_duration.count() << " μs (" << files.size() << " found)" << std::endl;
-    std::cout << "[STANDARD] Delete " << num_dirs << " directories: " << delete_duration.count() << " μs" << std::endl;
+    // CUSTOM FILESYSTEM OPERATIONS
+    try {
+        static mtfs::common::AuthManager auth;
+        auto fs = mtfs::fs::FileSystem::create("./benchmark_fs_dir", &auth);
+        
+        // Register and login user for permissions
+        auth.registerUser("benchuser2", "benchpass", true);
+        auth.authenticate("benchuser2", "benchpass");
+        
+        // Custom directory creation
+        auto custom_start = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < num_dirs; ++i) {
+            std::string dir_name = "custom_benchmark_dir_" + std::to_string(i);
+            fs->createDirectory(dir_name);
+        }
+        auto custom_end = std::chrono::high_resolution_clock::now();
+        auto custom_create_duration = std::chrono::duration_cast<std::chrono::microseconds>(custom_end - custom_start);
+        
+        // Custom directory listing
+        custom_start = std::chrono::high_resolution_clock::now();
+        auto custom_files = fs->listDirectory(".");
+        custom_end = std::chrono::high_resolution_clock::now();
+        auto custom_list_duration = std::chrono::duration_cast<std::chrono::microseconds>(custom_end - custom_start);
+        
+        // Count custom directories
+        int custom_dir_count = 0;
+        for (const auto& file : custom_files) {
+            if (file.find("custom_benchmark_dir_") == 0) {
+                custom_dir_count++;
+            }
+        }
+        
+        // Display results with comparison
+        std::cout << "[STANDARD] Create " << num_dirs << " directories: " << create_duration.count() << " microseconds" << std::endl;
+        std::cout << "[CUSTOM]   Create " << num_dirs << " directories: " << custom_create_duration.count() << " microseconds";
+        if (custom_create_duration.count() > 0) {
+            double create_ratio = static_cast<double>(create_duration.count()) / custom_create_duration.count();
+            std::cout << " (" << std::fixed << std::setprecision(1) << create_ratio << "x ";
+            std::cout << (create_ratio > 1 ? "slower" : "faster") << ")";
+        }
+        std::cout << std::endl;
+        
+        std::cout << "[STANDARD] List directories:           " << list_duration.count() << " microseconds (" << files.size() << " found)" << std::endl;
+        std::cout << "[CUSTOM]   List directories:           " << custom_list_duration.count() << " microseconds (" << custom_dir_count << " found)";
+        if (custom_list_duration.count() > 0) {
+            double list_ratio = static_cast<double>(list_duration.count()) / custom_list_duration.count();
+            std::cout << " (" << std::fixed << std::setprecision(1) << list_ratio << "x ";
+            std::cout << (list_ratio > 1 ? "slower" : "faster") << ")";
+        }
+        std::cout << std::endl;
+        
+        std::cout << "[STANDARD] Delete " << num_dirs << " directories: " << delete_duration.count() << " microseconds" << std::endl;
+        std::cout << "[CUSTOM]   Note: Directory deletion not implemented in CLI" << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cout << "[CUSTOM]   Error: " << e.what() << std::endl;
+        std::cout << "[STANDARD] Create " << num_dirs << " directories: " << create_duration.count() << " microseconds" << std::endl;
+        std::cout << "[STANDARD] List directories:           " << list_duration.count() << " microseconds (" << files.size() << " found)" << std::endl;
+        std::cout << "[STANDARD] Delete " << num_dirs << " directories: " << delete_duration.count() << " microseconds" << std::endl;
+    }
 }
 
 // =============================================================================
@@ -338,15 +447,16 @@ void benchmark_directory_operations() {
 void benchmark_file_operations() {
     std::cout << "\n=== File Operations Benchmark (Copy, Move, Find, Delete) ===" << std::endl;
     
-    const int num_files = 10;
-    std::cout << "Testing copy, move, find, and delete operations..." << std::endl;
+    const int num_files = 5; // Reduced for faster comparison
+    std::cout << "Testing copy, move, find, and delete operations with side-by-side comparison..." << std::endl;
     
+    // STANDARD FILESYSTEM OPERATIONS
     // Create test files
     for (int i = 0; i < num_files; ++i) {
         std::string filename = "test_file_" + std::to_string(i) + ".txt";
         std::ofstream file(filename);
         file << "Test data for file operations benchmark " << i << std::endl;
-        for (int j = 0; j < 100; ++j) {
+        for (int j = 0; j < 50; ++j) {
             file << "Line " << j << " of file " << i << std::endl;
         }
         file.close();
@@ -399,10 +509,107 @@ void benchmark_file_operations() {
     end = std::chrono::high_resolution_clock::now();
     auto delete_duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     
-    std::cout << "[STANDARD] Copy " << num_files << " files:   " << copy_duration.count() << " μs" << std::endl;
-    std::cout << "[STANDARD] Move " << num_files << " files:   " << move_duration.count() << " μs" << std::endl;
-    std::cout << "[STANDARD] Find .txt files:      " << find_duration.count() << " μs (" << found_files.size() << " found)" << std::endl;
-    std::cout << "[STANDARD] Delete " << num_files*2 << " files: " << delete_duration.count() << " μs" << std::endl;
+    // CUSTOM FILESYSTEM OPERATIONS
+    try {
+        static mtfs::common::AuthManager auth;
+        auto fs = mtfs::fs::FileSystem::create("./benchmark_fs_ops", &auth);
+        
+        // Register and login user for permissions
+        auth.registerUser("benchuser3", "benchpass", true);
+        auth.authenticate("benchuser3", "benchpass");
+        
+        // Create custom test files
+        for (int i = 0; i < num_files; ++i) {
+            std::string filename = "custom_test_file_" + std::to_string(i) + ".txt";
+            std::string content = "Test data for custom file operations benchmark " + std::to_string(i) + "\n";
+            for (int j = 0; j < 50; ++j) {
+                content += "Line " + std::to_string(j) + " of file " + std::to_string(i) + "\n";
+            }
+            fs->createFile(filename);
+            fs->writeFile(filename, content);
+        }
+        
+        // Custom file copy benchmark
+        auto custom_start = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < num_files; ++i) {
+            std::string source = "custom_test_file_" + std::to_string(i) + ".txt";
+            std::string dest = "custom_copy_file_" + std::to_string(i) + ".txt";
+            fs->copyFile(source, dest);
+        }
+        auto custom_end = std::chrono::high_resolution_clock::now();
+        auto custom_copy_duration = std::chrono::duration_cast<std::chrono::microseconds>(custom_end - custom_start);
+        
+        // Custom file move/rename benchmark
+        custom_start = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < num_files; ++i) {
+            std::string source = "custom_copy_file_" + std::to_string(i) + ".txt";
+            std::string dest = "custom_moved_file_" + std::to_string(i) + ".txt";
+            fs->moveFile(source, dest);
+        }
+        custom_end = std::chrono::high_resolution_clock::now();
+        auto custom_move_duration = std::chrono::duration_cast<std::chrono::microseconds>(custom_end - custom_start);
+        
+        // Custom file find benchmark
+        custom_start = std::chrono::high_resolution_clock::now();
+        auto custom_found_files = fs->findFiles("*.txt");
+        custom_end = std::chrono::high_resolution_clock::now();
+        auto custom_find_duration = std::chrono::duration_cast<std::chrono::microseconds>(custom_end - custom_start);
+        
+        // Custom file delete benchmark
+        custom_start = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < num_files; ++i) {
+            std::string filename = "custom_test_file_" + std::to_string(i) + ".txt";
+            fs->deleteFile(filename);
+            filename = "custom_moved_file_" + std::to_string(i) + ".txt";
+            fs->deleteFile(filename);
+        }
+        custom_end = std::chrono::high_resolution_clock::now();
+        auto custom_delete_duration = std::chrono::duration_cast<std::chrono::microseconds>(custom_end - custom_start);
+        
+        // Display results with comparison
+        std::cout << "[STANDARD] Copy " << num_files << " files:     " << copy_duration.count() << " microseconds" << std::endl;
+        std::cout << "[CUSTOM]   Copy " << num_files << " files:     " << custom_copy_duration.count() << " microseconds";
+        if (custom_copy_duration.count() > 0) {
+            double copy_ratio = static_cast<double>(copy_duration.count()) / custom_copy_duration.count();
+            std::cout << " (" << std::fixed << std::setprecision(1) << copy_ratio << "x ";
+            std::cout << (copy_ratio > 1 ? "slower" : "faster") << ")";
+        }
+        std::cout << std::endl;
+        
+        std::cout << "[STANDARD] Move " << num_files << " files:     " << move_duration.count() << " microseconds" << std::endl;
+        std::cout << "[CUSTOM]   Move " << num_files << " files:     " << custom_move_duration.count() << " microseconds";
+        if (custom_move_duration.count() > 0) {
+            double move_ratio = static_cast<double>(move_duration.count()) / custom_move_duration.count();
+            std::cout << " (" << std::fixed << std::setprecision(1) << move_ratio << "x ";
+            std::cout << (move_ratio > 1 ? "slower" : "faster") << ")";
+        }
+        std::cout << std::endl;
+        
+        std::cout << "[STANDARD] Find .txt files:    " << find_duration.count() << " microseconds (" << found_files.size() << " found)" << std::endl;
+        std::cout << "[CUSTOM]   Find .txt files:    " << custom_find_duration.count() << " microseconds (" << custom_found_files.size() << " found)";
+        if (custom_find_duration.count() > 0) {
+            double find_ratio = static_cast<double>(find_duration.count()) / custom_find_duration.count();
+            std::cout << " (" << std::fixed << std::setprecision(1) << find_ratio << "x ";
+            std::cout << (find_ratio > 1 ? "slower" : "faster") << ")";
+        }
+        std::cout << std::endl;
+        
+        std::cout << "[STANDARD] Delete " << num_files*2 << " files:   " << delete_duration.count() << " microseconds" << std::endl;
+        std::cout << "[CUSTOM]   Delete " << num_files*2 << " files:   " << custom_delete_duration.count() << " microseconds";
+        if (custom_delete_duration.count() > 0) {
+            double delete_ratio = static_cast<double>(delete_duration.count()) / custom_delete_duration.count();
+            std::cout << " (" << std::fixed << std::setprecision(1) << delete_ratio << "x ";
+            std::cout << (delete_ratio > 1 ? "slower" : "faster") << ")";
+        }
+        std::cout << std::endl;
+        
+    } catch (const std::exception& e) {
+        std::cout << "[CUSTOM]   Error: " << e.what() << std::endl;
+        std::cout << "[STANDARD] Copy " << num_files << " files:     " << copy_duration.count() << " microseconds" << std::endl;
+        std::cout << "[STANDARD] Move " << num_files << " files:     " << move_duration.count() << " microseconds" << std::endl;
+        std::cout << "[STANDARD] Find .txt files:    " << find_duration.count() << " microseconds (" << found_files.size() << " found)" << std::endl;
+        std::cout << "[STANDARD] Delete " << num_files*2 << " files:   " << delete_duration.count() << " microseconds" << std::endl;
+    }
 }
 
 // =============================================================================
@@ -484,9 +691,9 @@ void benchmark_compression() {
     std::cout << "[DATA]     Compressed size:       " << compressed.size() << " bytes" << std::endl;
     std::cout << "[RESULT]   Compression ratio:     " << std::fixed << std::setprecision(2) 
               << (double)compressed.size() / test_data.size() * 100 << "%" << std::endl;
-    std::cout << "[STANDARD] Copy (no compression): " << copy_duration.count() << " μs" << std::endl;
-    std::cout << "[CUSTOM]   RLE compression:       " << compress_duration.count() << " μs" << std::endl;
-    std::cout << "[CUSTOM]   RLE decompression:     " << decompress_duration.count() << " μs" << std::endl;
+    std::cout << "[STANDARD] Copy (no compression): " << copy_duration.count() << " microseconds" << std::endl;
+    std::cout << "[CUSTOM]   RLE compression:       " << compress_duration.count() << " microseconds" << std::endl;
+    std::cout << "[CUSTOM]   RLE decompression:     " << decompress_duration.count() << " microseconds" << std::endl;
     std::cout << "[RESULT]   Data integrity:        " << (decompressed == test_data ? "PASS" : "FAIL") << std::endl;
 }
 
@@ -544,8 +751,8 @@ void benchmark_backup_operations() {
     end = std::chrono::high_resolution_clock::now();
     auto incremental_backup_duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
     
-    std::cout << "[STANDARD] Full backup (5 files):        " << full_backup_duration.count() << " μs" << std::endl;
-    std::cout << "[CUSTOM]   Incremental backup (2 files): " << incremental_backup_duration.count() << " μs" << std::endl;
+    std::cout << "[STANDARD] Full backup (5 files):        " << full_backup_duration.count() << " microseconds" << std::endl;
+    std::cout << "[CUSTOM]   Incremental backup (2 files): " << incremental_backup_duration.count() << " microseconds" << std::endl;
     
     // Cleanup
     std::filesystem::remove_all("test_backup_source");
@@ -604,9 +811,8 @@ void benchmark_cache_with_statistics() {
     auto total_duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
     
     std::cout << "\nFinal Statistics:" << std::endl;
-    cache.print_stats();
-    std::cout << "Total time: " << total_duration.count() << " μs" << std::endl;
-    std::cout << "Average time per operation: " << (double)total_duration.count() / operations << " μs" << std::endl;
+    cache.print_stats();    std::cout << "Total time: " << total_duration.count() << " microseconds" << std::endl;
+    std::cout << "Average time per operation: " << (double)total_duration.count() / operations << " microseconds" << std::endl;
     
     // Compare with standard unordered_map
     std::cout << "\nComparison with std::unordered_map:" << std::endl;
@@ -626,11 +832,10 @@ void benchmark_cache_with_statistics() {
     }
     end_time = std::chrono::high_resolution_clock::now();
     auto std_duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-    
-    std::cout << "[STANDARD] unordered_map:    " << std_duration.count() << " μs" << std::endl;
-    std::cout << "[CUSTOM]   LRU cache:        " << total_duration.count() << " μs" << std::endl;
+      std::cout << "[STANDARD] unordered_map:    " << std_duration.count() << " microseconds" << std::endl;
+    std::cout << "[CUSTOM]   LRU cache:        " << total_duration.count() << " microseconds" << std::endl;
     std::cout << "[RESULT]   Difference: " << (total_duration.count() > std_duration.count() ? "+" : "") 
-              << (total_duration.count() - std_duration.count()) << " μs" << std::endl;
+              << (total_duration.count() - std_duration.count()) << " microseconds" << std::endl;
     std::cout << "[STANDARD] Cache size: " << std_cache.size() << " entries (unbounded)" << std::endl;
     std::cout << "[CUSTOM]   Cache size: " << cache.size() << " entries (bounded to " << cache.size() << ")" << std::endl;
 }
@@ -689,23 +894,21 @@ int main(int argc, char* argv[]) {
     std::cout << "\n=========================================" << std::endl;
     std::cout << "     ALL BENCHMARKS COMPLETED!         " << std::endl;
     std::cout << "=========================================" << std::endl;
-    std::cout << "Total execution time: " << duration.count() << " ms" << std::endl;
-    std::cout << "\nThis comprehensive benchmark demonstrates:" << std::endl;
-    std::cout << "✓ File read/write operations with integrity checking" << std::endl;
-    std::cout << "✓ Directory creation, listing, and deletion" << std::endl;
-    std::cout << "✓ File copy, move, find, and delete operations" << std::endl;
-    std::cout << "✓ Compression with RLE algorithm and ratio analysis" << std::endl;
-    std::cout << "✓ Full and incremental backup operations" << std::endl;
-    std::cout << "✓ LRU cache with live hit/miss statistics" << std::endl;
-    std::cout << "✓ Side-by-side performance comparisons" << std::endl;
-    std::cout << "✓ Real-time cache statistics and hit rates" << std::endl;
-    
-    std::cout << "\nKey Performance Insights:" << std::endl;
-    std::cout << "• Cache hit rates dramatically affect overall system performance" << std::endl;
-    std::cout << "• LRU eviction policy prevents memory exhaustion" << std::endl;
-    std::cout << "• Compression efficiency depends on data patterns" << std::endl;
-    std::cout << "• Incremental backups are significantly faster than full backups" << std::endl;
-    std::cout << "• Custom implementations trade speed for additional features" << std::endl;
+    std::cout << "Total execution time: " << duration.count() << " ms" << std::endl;    std::cout << "\nThis comprehensive benchmark demonstrates:" << std::endl;
+    std::cout << "- File read/write operations with integrity checking" << std::endl;
+    std::cout << "- Directory creation, listing, and deletion" << std::endl;
+    std::cout << "- File copy, move, find, and delete operations" << std::endl;
+    std::cout << "- Compression with RLE algorithm and ratio analysis" << std::endl;
+    std::cout << "- Full and incremental backup operations" << std::endl;
+    std::cout << "- LRU cache with live hit/miss statistics" << std::endl;
+    std::cout << "- Side-by-side performance comparisons" << std::endl;
+    std::cout << "- Real-time cache statistics and hit rates" << std::endl;
+      std::cout << "\nKey Performance Insights:" << std::endl;
+    std::cout << "- Cache hit rates dramatically affect overall system performance" << std::endl;
+    std::cout << "- LRU eviction policy prevents memory exhaustion" << std::endl;
+    std::cout << "- Compression efficiency depends on data patterns" << std::endl;
+    std::cout << "- Incremental backups are significantly faster than full backups" << std::endl;
+    std::cout << "- Custom implementations trade speed for additional features" << std::endl;
     
     return 0;
 }
