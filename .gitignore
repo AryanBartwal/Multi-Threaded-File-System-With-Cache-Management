@@ -2,10 +2,10 @@
 build/
 out/
 cmake-build-*/
+project_benchmark/
 
 # IDE specific files
 .idea/
-.vscode/
 *.swp
 *.swo
 
@@ -48,4 +48,29 @@ temp/
 
 # OS specific files
 .DS_Store
+Thumbs.db
+
+# Test output files and directories
+test_fs/
+mydir_restored/
+*.bin
+*_restored/
+
+# Visual Studio generated files
+*.vcxproj
+*.vcxproj.filters
+*.sln
+*.pdb
+*.ilk
+*.tlog/
+*.recipe
+*.lastbuildstate
+
+# Backup and temporary files
+*~
+*.bak
+*.tmp
+*.orig
+README_OLD.*
+documentation.html
 Thumbs.db 
